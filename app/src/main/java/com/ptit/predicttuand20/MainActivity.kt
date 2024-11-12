@@ -1,10 +1,12 @@
 package com.ptit.predicttuand20
 
 import android.content.ContentResolver
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
+import android.util.Base64
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -27,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -43,23 +46,42 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.gson.Gson
+import com.google.gson.GsonBuilder
 import com.ptit.predicttuand20.ui.theme.PredictTuanD20Theme
 import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
-import okhttp3.RequestBody
+import okhttp3.OkHttpClient
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.ResponseBody
+import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
 import retrofit2.Retrofit
-import java.io.ByteArrayOutputStream
+import retrofit2.converter.gson.GsonConverterFactory
+import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStream
+
 
 object YoloRetrofitClient {
     private const val BASE_URL = "http://100.68.49.61:8080/"
 
+    private val gson: Gson = GsonBuilder()
+        .setLenient()
+        .create()
+
     val retrofit: Retrofit by lazy {
         Retrofit.Builder()
             .baseUrl(BASE_URL)
+            .client(
+                OkHttpClient.Builder().addInterceptor(HttpLoggingInterceptor().apply {
+                    level = HttpLoggingInterceptor.Level.BODY
+                }).build()
+            )
+            .addConverterFactory(GsonConverterFactory.create(gson))
             .build()
     }
 }
@@ -95,6 +117,7 @@ class MainActivity : ComponentActivity() {
             val scope = rememberCoroutineScope()
             val bitmap = remember { mutableStateOf<Bitmap?>(null) }
             val selectedImageUri = remember { mutableStateOf<Uri>(Uri.EMPTY) }
+            val isLoading = remember { mutableStateOf(false) }
 
             val pickerLauncher =
                 rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -117,17 +140,17 @@ class MainActivity : ComponentActivity() {
                             .padding(innerPadding)
                             .padding(16.dp)
                     ) {
+                        Text(
+                            text = "PHÁT HIỆN BỆNH RĂNG SÂU",
+                            textAlign = TextAlign.Center,
+                            fontSize = 24.sp,
+                            color = Color.Black,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
                         if (bitmap.value == null) {
-                            Text(
-                                text = "PHÁT HIỆN BỆNH RĂNG SÂU",
-                                textAlign = TextAlign.Center,
-                                fontSize = 24.sp,
-                                color = Color.Black,
-                                fontWeight = FontWeight.Bold
-                            )
-
-                            Spacer(modifier = Modifier.height(24.dp))
-
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
@@ -139,31 +162,26 @@ class MainActivity : ComponentActivity() {
                                     ),
                                     shape = RoundedCornerShape(12.dp),
                                     onClick = {
+                                        isLoading.value = true
                                         scope.launch {
-                                            val res = ApiClient.faster.predict(
-                                                getRequestBodyFromUri(
-                                                    contentResolver,
-                                                    selectedImageUri.value
+                                            try {
+                                                val res = ApiClient.faster.predict(
+                                                    Request(
+                                                        img_base64 = encodeImageToBase64(
+                                                            this@MainActivity,
+                                                            selectedImageUri.value
+                                                        )
+                                                    )
                                                 )
-                                            )
-                                            res.enqueue(object : Callback<ResponseBody> {
-                                                override fun onResponse(
-                                                    call: Call<ResponseBody>,
-                                                    response: Response<ResponseBody>
-                                                ) {
-                                                    bitmap.value =
-                                                        response.body()?.byteStream()?.use {
-                                                            BitmapFactory.decodeStream(it)
-                                                        }
-                                                }
-
-                                                override fun onFailure(
-                                                    call: Call<ResponseBody>,
-                                                    t: Throwable
-                                                ) {
-
-                                                }
-                                            })
+                                                bitmap.value =
+                                                    res.byteStream().use {
+                                                        BitmapFactory.decodeStream(it)
+                                                    }
+                                            } catch (e: Exception) {
+                                                e.printStackTrace()
+                                            } finally {
+                                                isLoading.value = false
+                                            }
                                         }
                                     }
                                 ) {
@@ -182,31 +200,26 @@ class MainActivity : ComponentActivity() {
                                     ),
                                     shape = RoundedCornerShape(12.dp),
                                     onClick = {
+                                        isLoading.value = true
                                         scope.launch {
-                                            val res = ApiClient.yolo.predict(
-                                                getRequestBodyFromUri(
-                                                    contentResolver,
-                                                    selectedImageUri.value
+                                            try {
+                                                val res = ApiClient.yolo.predict(
+                                                    Request(
+                                                        img_base64 = encodeImageToBase64(
+                                                            this@MainActivity,
+                                                            selectedImageUri.value
+                                                        )
+                                                    )
                                                 )
-                                            )
-                                            res.enqueue(object : Callback<ResponseBody> {
-                                                override fun onResponse(
-                                                    call: Call<ResponseBody>,
-                                                    response: Response<ResponseBody>
-                                                ) {
-                                                    bitmap.value =
-                                                        response.body()?.byteStream()?.use {
-                                                            BitmapFactory.decodeStream(it)
-                                                        }
-                                                }
-
-                                                override fun onFailure(
-                                                    call: Call<ResponseBody>,
-                                                    t: Throwable
-                                                ) {
-
-                                                }
-                                            })
+                                                bitmap.value =
+                                                    res.byteStream().use {
+                                                        BitmapFactory.decodeStream(it)
+                                                    }
+                                            } catch (e: Exception) {
+                                                e.printStackTrace()
+                                            } finally {
+                                                isLoading.value = false
+                                            }
                                         }
                                     }
                                 ) {
@@ -272,17 +285,19 @@ class MainActivity : ComponentActivity() {
                                             fontSize = 24.sp,
                                         )
                                     }
+
+                                if (isLoading.value){
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(Color.Black.copy(alpha = 0.8f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator()
+                                    }
+                                }
                             }
-                        }
-                        else {
-                            Image(
-                                bitmap = bitmap.value!!.asImageBitmap(),
-                                contentDescription = "Image",
-                                modifier = Modifier.fillMaxSize()
-                            )
-
-                            Spacer(modifier = Modifier.height(24.dp))
-
+                        } else {
                             Button(
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = Color.Green,
@@ -291,7 +306,7 @@ class MainActivity : ComponentActivity() {
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(12.dp),
                                 onClick = {
-                                   bitmap.value = null
+                                    bitmap.value = null
                                 }
                             ) {
                                 Text(
@@ -302,6 +317,12 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
 
+                            Spacer(modifier = Modifier.height(24.dp))
+
+                            Image(
+                                bitmap = bitmap.value!!.asImageBitmap(),
+                                contentDescription = "Image"
+                            )
                         }
                     }
                 }
@@ -333,15 +354,23 @@ private fun getImageBitmap(contentResolver: ContentResolver, uri: Uri): Bitmap {
     return image
 }
 
-private fun getRequestBodyFromUri(contentResolver: ContentResolver, uri: Uri): MultipartBody.Part {
-    val image = getImageBitmap(contentResolver, uri)
-    val byteArrayOutputStream = ByteArrayOutputStream()
-    return image.compress(Bitmap.CompressFormat.JPEG, 100, byteArrayOutputStream).let {
-        MultipartBody.Part.create(
-            RequestBody.create(
-                okhttp3.MediaType.parse("image/*"),
-                byteArrayOutputStream.toByteArray()
-            )
-        )
-    }
+private fun getRequestBodyFromUri(context: Context, uri: Uri): MultipartBody.Part {
+    val contentResolver = context.contentResolver
+    val inputStream = contentResolver.openInputStream(uri)
+    val file = File(context.cacheDir, "upload_image.jpg")
+    val outputStream = FileOutputStream(file)
+    inputStream?.copyTo(outputStream)
+    inputStream?.close()
+    outputStream.close()
+
+    val requestFile = file.asRequestBody("image/jpeg".toMediaTypeOrNull())
+    return MultipartBody.Part.createFormData("file", file.name, requestFile)
+}
+
+fun encodeImageToBase64(context: Context, imageUri: Uri): String {
+    val inputStream: InputStream? = context.contentResolver.openInputStream(imageUri)
+    return inputStream?.let {
+        val bytes = it.readBytes()
+        Base64.encodeToString(bytes, Base64.DEFAULT)
+    } ?: ""
 }
